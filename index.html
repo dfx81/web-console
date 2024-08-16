@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>dfx-space</title>
+    <meta name="viewport" content="initial-scale=1, width=device-width, user-scalable=no">
+    <meta charset="utf-8">
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: sans-serif;
+        }
+
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            background-color: black;
+            margin: 0px;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 8px;
+        }
+
+        #canvas {
+            aspect-ratio: 1/1;
+            height: 100%;
+            width: auto;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            /*border: 2px solid white;
+                border-radius: .5rem;*/
+        }
+
+        #input, #regular, #bold, #prep {
+            position: absolute;
+            opacity: 0.25;
+            z-index: -10000;
+            bottom: 0px;
+        }
+
+        @media screen and (orientation: portrait) {
+            #canvas {
+                aspect-ratio: 1/1;
+                width: 100%;
+                height: auto;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <input id="input" type="text">
+    <img id="regular" src="carton.png">
+    <img id="bold" src="carton-bold.png">
+    <canvas id="prep" width="8" height="8"></canvas>
+    <canvas id="canvas" width="320" height="320"></canvas>
+
+    <script>
+        let ctx;
+        let input;
+        let regular;
+        let bold;
+
+        let inputs = new Array(0);
+        let buffer = "> ".split();
+        let line = 0;
+        let prep;
+
+        let clearColor = "#000";
+        let cursor = true;
+        let timer = 0;
+        let dateLast;
+
+        let fg = "#fff";
+        let bg = "#000";
+
+        let ctrlDown = false;
+        let blocking = false;
+        let exitAction = () => {
+
+        };
+
+        window.onresize = () => {
+            resize();
+        }
+
+        window.onload = () => {
+            let canvas = document.querySelector("#canvas");
+            let prepCvs = document.querySelector("#prep");
+            input = document.querySelector("#input");
+            canvas.addEventListener("click", focus);
+            input.addEventListener("keypress", keypress);
+            input.addEventListener("keydown", keydown);
+            input.addEventListener("keyup", keyup);
+            ctx = canvas.getContext("2d");
+            prep = prepCvs.getContext("2d");
+            prep.imageSmoothingEnabled = false;
+            prep.textRendering = "geometricPrecision";
+            ctx.imageSmoothingEnabled = false;
+            ctx.textRendering = "geometricPrecision";
+            resize();
+            canvas.addEventListener("resize", resize);
+            clear();
+
+            regular = document.querySelector("#regular");
+            bold = document.querySelector("#bold");
+
+            printText("QLYCO-CONSOLE v0.0.1a");
+            printText("");
+            printText("type help for help")
+            printText("");
+            dateLast = Date.now();
+            requestAnimationFrame(rerender);
+        };
+
+        let rerender = () => {
+            let dateNow = Date.now();
+            let delta = dateNow - dateLast;
+
+            timer += delta;
+
+            if (timer >= 500) {
+                timer = 0;
+                cursor = !cursor;
+            }
+            
+            clear();
+
+            let y = 0;
+
+            for (let i = 0; i < inputs.length; i++) {
+                drawText(inputs[i], 0, y * 8, "#fff", "#000");
+
+                y += Math.floor(inputs[i].length / (320 / 8)) + 1;
+            }
+
+            drawText((blocking) ? buffer.join("").slice(2) : buffer.join(""), 0, line * 8, "#fff", "#000");
+            
+            drawCursor();
+
+            dateLast = dateNow;
+            window.setTimeout(() => {
+                requestAnimationFrame(rerender);
+            }, 1000/60);
+            
+        }
+
+        let resize = (event) => {
+            let oW = Math.floor((window.innerWidth - 32) / 320);
+            let oH = Math.floor((window.innerHeight - 32) / 320);
+
+            let scale = Math.min(oW, oH);
+
+            canvas.style.width = scale * 320 + "px";
+            canvas.style.height = scale * 320 + "px";
+            console.log("w:" + canvas.clientWidth + " y:" + canvas.clientHeight);
+        }
+
+        let focus = (evt) => {
+            input.focus();
+        }
+
+        let keypress = (event) => {
+            if (event.keyCode == 13) {
+                line += Math.floor(buffer.length / (320 / 8)) + 1;
+                inputs.push((blocking) ? buffer.join("").slice(2) : buffer.join(""));
+                if (!blocking)
+                    process(buffer.join("").slice(2));
+                buffer = "> ".split();
+            } else {
+                buffer.push(String.fromCharCode(event.keyCode));
+            }
+        }
+
+        let keydown = (event) => {
+            if (event.keyCode == 8) {
+                if (buffer.length >= 2)
+                    buffer.pop();
+            } else if (event.keyCode == 17) {
+                ctrlDown = true;
+            } else if (event.keyCode == 9) {
+                buffer.push(" ");
+                buffer.push(" ");
+                event.preventDefault();
+            } else if (event.keyCode == 67 && ctrlDown) {
+                if (blocking) {
+                    block();
+                    exitAction();
+                    exitAction = () => {};
+                }
+            } else {
+                console.log(event.keyCode);
+            }
+        }
+
+        let keyup = (event) => {
+            if (event.keyCode == 17) {
+                ctrlDown = false;
+            }
+        }
+
+        let clear = () => {
+            ctx.fillStyle = clearColor;
+            ctx.fillRect(0, 0, 320, 320);
+        }
+
+        let drawText = (text, x, y, fg, bg, style) => {
+            let fontStyle;
+
+            switch (style) {
+                case "bold":
+                    fontStyle = bold;
+                    break;
+                default:
+                    fontStyle = regular;
+            }
+
+            for (let i = 0; i < text.length; i++) {
+                let code = text.charCodeAt(i);
+                let idx = code - 32;
+                let w = 32;
+                let h = 3;
+
+                let sx = idx % w;
+                let sy = Math.floor(idx / w);
+
+                //console.log("x: " + sx + " y: " + sy);
+                renderChar(sx, sy, fg, bg, fontStyle);
+                ctx.drawImage(prep.canvas, 0, 0, 8, 8, (x + i) % (320 / 8) * 8, Math.floor((x + i) / (320 / 8)) * 8 + y, 8, 8);
+            }
+        }
+
+        let renderChar = (charX, charY, fg, bg, style) => {
+            prep.clearRect(0, 0, 8, 8);
+
+            prep.drawImage(style, charX * 8, charY * 8, 8, 8, 0, 0, 8, 8);
+            prep.globalCompositeOperation = "source-in";
+            prep.fillStyle = fg;
+            prep.fillRect(0, 0, 8, 8);
+            prep.globalCompositeOperation = "destination-over";
+            prep.fillStyle = bg;
+            prep.fillRect(0, 0, 8, 8);
+            prep.globalCompositeOperation = "source-over";
+        }
+
+        let drawCursor = () => {
+            ctx.fillStyle = (cursor) ? "#fff" : "#000";
+            ctx.fillRect((buffer.length + ((blocking) ? -1 : 1)) % (320 / 8) * 8, Math.floor((buffer.length + ((blocking) ? -1 : 1)) / (320 / 8)) * 8 + line * 8, 8, 8);
+        }
+
+        let process = (statement) => {
+            if (statement == "help") {
+                printText("NOBODY CAN HELP YOU NOW!");
+            } else if (statement == "clear") {
+                inputs.length = 0;
+                line = 0;
+            } else if (statement == "reboot") {
+                printText("Rebooting...");
+                block();
+
+                let cancel = window.setTimeout(() => {
+                    window.location.reload();
+                }, 5000);
+
+                exitAction = () => {
+                    window.clearTimeout(cancel);
+                    printText("Reboot cancelled...");
+                }
+            } else {
+                printText("I don't know what's that...");
+            }
+        }
+
+        let block = () => {
+            blocking = !blocking;
+        }
+
+        let printText = (text) => {
+            line += Math.floor(text.length / (320 / 8)) + 1;
+            inputs.push(text);
+        }
+    </script>
+</body>
+
+</html>
